@@ -8,17 +8,19 @@
 #include "RTClib.h"
 #include <Arduino.h>
 #include <Preferences.h>
-#include "BluetoothSerial.h" // Added per request
+#include "BluetoothSerial.h"
 RTC_DS3231 rtc;
 Preferences preferences;
 HardwareSerial NodeMCUSerial(2);
-BluetoothSerial ESP32Bluetooth; // Added per request
-int LastCheckedMinute = -1, STSecond = 0, STMinute  = 0, STHour = 0, STDay = 0, STMonth = 0, STYear = 0, STTimeZone = 0, SVTimeZone = 0, STDST = 0, SVDST = 0, ST1224 = 0, SV1224 = 0, STAMPM = 0, SVAMPM = 0;
+BluetoothSerial ESP32Bluetooth;
+int LastCheckedMinute = -1, STSecond = 0, STMinute = 0, STHour = 0;
+int STDay = 0, STMonth = 0, STYear = 0, STTimeZone = 0, SVTimeZone = 0;
+int STDST = 0, SVDST = 0, ST1224 = 0, SV1224 = 0, STAMPM = 0, SVAMPM = 0;
 void setup() 
 {
 	Serial.begin(115200);
 	NodeMCUSerial.begin(115200, SERIAL_8N1, 16, 17); 
-	ESP32Bluetooth.begin("Cuculidae"); // Added per request
+	ESP32Bluetooth.begin("Cuculidae");
 	if (!rtc.begin()) 
 	{
 		Serial.println("Couldn't find RTC module!");
@@ -50,13 +52,13 @@ void SerialReceive()
 	{
 		String incomingData = NodeMCUSerial.readStringUntil('\n');
 		incomingData.trim(); 
-		if (incomingData.startsWith("ST@")) 
+		if (incomingData.startsWith("ST\x1F"))// Set time from Screen
 		{
-			int parsedFields = sscanf(incomingData.c_str() + 3, "%d@%d@%d@%d@%d@%d@%d@%d@%d@%d", 
+			int parsedFields = sscanf(incomingData.c_str() + 3, "%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d", 
 			&STSecond, &STMinute, &STHour, &STDay, &STMonth, &STYear, &STDST, &STTimeZone, &ST1224, &STAMPM);
 			if (parsedFields == 10) 
 			{
-				Serial.println("Time Set Received!");
+				Serial.println("Time Set from Screen, Received!");
 				preferences.begin("clock_settings", false);
 				if (STDST != SVDST)
 				{
@@ -82,9 +84,9 @@ void SerialReceive()
 			}
 			rtc.adjust(DateTime(STYear, STMonth, STDay, STHour, STMinute, STSecond));
 		}
-		else if(incomingData.startsWith("WT?"))
+		else if(incomingData.startsWith("WT?"))// Get time to Screen
 		{
-			Serial.println("Time Inquiry Received!");
+			Serial.println("Time Inquiry from Screen, Received!");
 			DateTime now = rtc.now();
 			preferences.begin("clock_settings", false);
 			SVDST = preferences.getInt("PDST", 0);
@@ -93,31 +95,52 @@ void SerialReceive()
 	    SVAMPM = preferences.getInt("PAMPM", 0);
 			preferences.end();
 			NodeMCUSerial.println(String("ST") + "@" + String(now.second()) + "@" + now.minute() + "@" + now.hour() + "@" + now.day() + "@" + now.month() + "@" + now.year() + "@" + SVDST + "@" + SVTimeZone+ "@" + SV1224 + "@" + SVAMPM);
-			ESP32Bluetooth.println(String("ST") + "@" + String(now.second()) + "@" + now.minute() + "@" + now.hour() + "@" + now.day() + "@" + now.month() + "@" + now.year() + "@" + SVDST + "@" + SVTimeZone+ "@" + SV1224 + "@" + SVAMPM); // Added per request
-			LastCheckedMinute = now.minute();
 		}
-		else if (incomingData.length() > 0)
+		else if (incomingData.startsWith("SSD\x1F"))
 		{
-			Serial.println(incomingData);
+			Serial.println("Set Sound Day from Screen, Received!");
+		}		
+		else if (incomingData.startsWith("SSDN\x1F"))
+		{
+			Serial.println("Set Sound Day/ Night from Screen, Received!");
+		}
+		else if (incomingData.startsWith("SMD\x1F"))
+		{
+			Serial.println("Set Movement Day from Screen, Received!");	
+		}
+		else if (incomingData.startsWith("SMDN\x1F"))
+		{
+			Serial.println("Set Movement Day/ Night from Screen, Received!");	
+		}
+		else if (incomingData.startsWith("SL\x1F"))
+		{
+			Serial.println("Set Lights from Screen, Received!");	
+		}
+		else if (incomingData.startsWith("SS\x1F"))
+		{
+			Serial.println("Set Smoke from Screen, Received!");	
+		}
+		if (incomingData.startsWith("ST\x1F") || (incomingData.startsWith("SSD\x1F")) || (incomingData.startsWith("SSDN\x1F")) || (incomingData.startsWith("SMD\x1F")) || (incomingData.startsWith("SMDN\x1F")) || (incomingData.startsWith("SL\x1F")) || (incomingData.startsWith("SS\x1F")) ||  incomingData.startsWith("WE\x1F") || incomingData.startsWith("CA\x1F"))
+		{
+			ESP32Bluetooth.println(incomingData);
 		}
 	}
-
-	// Bluetooth checking implementation block added directly below without altering the block above
 	if (ESP32Bluetooth.available() > 0) 
 	{
+    // WF = Wifi
+		// LO = Location
+		// ST = Set Time
+		// WE = Weather
+		// CA = Calendar
 		String incomingData = ESP32Bluetooth.readStringUntil('\n');
-		incomingData.trim(); 
-		if (incomingData.length() > 0) 
+		incomingData.trim();
+		if (incomingData.startsWith("ST\x1F")) 
 		{
-			Serial.println(incomingData); // Prints the Bluetooth serial data to terminal per request
-		}
-		if (incomingData.startsWith("ST@")) 
-		{
-			int parsedFields = sscanf(incomingData.c_str() + 3, "%d@%d@%d@%d@%d@%d@%d@%d@%d@%d", 
+			int parsedFields = sscanf(incomingData.c_str() + 3, "%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d\x1F%d", 
 			&STSecond, &STMinute, &STHour, &STDay, &STMonth, &STYear, &STDST, &STTimeZone, &ST1224, &STAMPM);
 			if (parsedFields == 10) 
 			{
-				Serial.println("Time Set Received!");
+				Serial.println("Time Set from Phone, Received!");
 				preferences.begin("clock_settings", false);
 				if (STDST != SVDST)
 				{
@@ -143,19 +166,41 @@ void SerialReceive()
 			}
 			rtc.adjust(DateTime(STYear, STMonth, STDay, STHour, STMinute, STSecond));
 		}
-		else if(incomingData.startsWith("WT?"))
+		else if (incomingData.startsWith("WF\x1F"))
 		{
-			Serial.println("Time Inquiry Received!");
-			DateTime now = rtc.now();
-			preferences.begin("clock_settings", false);
-			SVDST = preferences.getInt("PDST", 0);
-			SVTimeZone = preferences.getInt("PTZ", 0);
-			SV1224 = preferences.getInt("P1224", 0);
-	    SVAMPM = preferences.getInt("PAMPM", 0);
-			preferences.end();
-			NodeMCUSerial.println(String("ST") + "@" + String(now.second()) + "@" + now.minute() + "@" + now.hour() + "@" + now.day() + "@" + now.month() + "@" + now.year() + "@" + SVDST + "@" + SVTimeZone+ "@" + SV1224 + "@" + SVAMPM);
-			ESP32Bluetooth.println(String("ST") + "@" + String(now.second()) + "@" + now.minute() + "@" + now.hour() + "@" + now.day() + "@" + now.month() + "@" + now.year() + "@" + SVDST + "@" + SVTimeZone+ "@" + SV1224 + "@" + SVAMPM); // Added per request
-			LastCheckedMinute = now.minute();
+			Serial.println("Set Wifi from Phone, Received!");
+		}		
+		else if (incomingData.startsWith("LO\x1F"))
+		{
+			Serial.println("Set Location from Phone, Received!");
+		}
+		else if (incomingData.startsWith("SSD\x1F"))
+		{
+			Serial.println("Set Sound Day from Phone, Received!");
+		}		
+		else if (incomingData.startsWith("SSDN\x1F"))
+		{
+			Serial.println("Set Sound Day/ Night from Phone, Received!");
+		}
+		else if (incomingData.startsWith("SMD\x1F"))
+		{
+			Serial.println("Set Movement Day from Phone, Received!");	
+		}
+		else if (incomingData.startsWith("SMDN\x1F"))
+		{
+			Serial.println("Set Movement Day/ Night from Phone, Received!");	
+		}
+		else if (incomingData.startsWith("SL\x1F"))
+		{
+			Serial.println("Set Lights from Phone, Received!");	
+		}
+		else if (incomingData.startsWith("SS\x1F"))
+		{
+			Serial.println("Set Smoke from Phone, Received!");	
+		}
+		if (incomingData.startsWith("ST\x1F") || (incomingData.startsWith("SSD\x1F")) || (incomingData.startsWith("SSDN\x1F")) || (incomingData.startsWith("SMD\x1F")) || (incomingData.startsWith("SMDN\x1F")) || (incomingData.startsWith("SL\x1F")) || (incomingData.startsWith("SS\x1F")) ||  incomingData.startsWith("WE\x1F") || incomingData.startsWith("CA\x1F"))
+		{
+			NodeMCUSerial.println(incomingData);
 		}
 	}
 }
@@ -170,10 +215,9 @@ void loop()
 		SVDST = preferences.getInt("PDST", 0);
 		SVTimeZone = preferences.getInt("PTZ", 0);
 		SV1224 = preferences.getInt("P1224", 0);
-	  SVAMPM = preferences.getInt("PAMPM", 0);
+		SVAMPM = preferences.getInt("PAMPM", 0);
 		preferences.end();
-		NodeMCUSerial.println(String("ST") + "@" + String(now.second()) + "@" + now.minute() + "@" + now.hour() + "@" + now.day() + "@" + now.month() + "@" + now.year() + "@" + SVDST + "@" + SVTimeZone+ "@" + SV1224 + "@" + SVAMPM);
-		ESP32Bluetooth.println(String("ST") + "@" + String(now.second()) + "@" + now.minute() + "@" + now.hour() + "@" + now.day() + "@" + now.month() + "@" + now.year() + "@" + SVDST + "@" + SVTimeZone+ "@" + SV1224 + "@" + SVAMPM); // Added per request
+		NodeMCUSerial.println(String("ST") + "\x1F" + String(now.second()) + "\x1F" + now.minute() + "\x1F" + now.hour() + "\x1F" + now.day() + "\x1F" + now.month() + "\x1F" + now.year() + "\x1F" + SVDST + "\x1F" + SVTimeZone + "\x1F" + SV1224 + "\x1F" + SVAMPM);
 		LastCheckedMinute = now.minute();
 	}
 }
